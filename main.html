@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Musical Spectrogram Pro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="top-bar">
+            <h1>Spectrogram Pro</h1>
+            <input type="file" id="audioFile" accept=".wav">
+        </div>
+        <div class="controls">
+            <div class="group">
+                <label>Time Zoom: <input type="range" id="scaleRange" min="1" max="150" value="40"></label>
+            </div>
+            <div class="group">
+                <label>Semi Zoom: <input type="range" id="yScaleRange" min="6" max="120" value="48"></label>
+                <label>Start: <input type="range" id="yOffsetRange" min="0" max="120" value="12"></label>
+                <label>Highlight: 
+                    <select id="highlightNoteSelect">
+                        <option value="C">C</option><option value="C#">C#</option>
+                        <option value="D">D</option><option value="D#">D#</option>
+                        <option value="E">E</option><option value="F">F</option>
+                        <option value="F#">F#</option><option value="G">G</option>
+                        <option value="G#">G#</option><option value="A">A</option>
+                        <option value="A#">A#</option><option value="B">B</option>
+                    </select>
+                </label>
+            </div>
+            <div class="group">
+                <label>BPM: <input type="number" id="bpmInput" value="120.00" step="0.01" style="width:65px;"></label>
+                <label>Off: <input type="number" id="gridOffsetInput" value="0" min="0" max="95" style="width:40px;"></label>
+                <label>Grid: 
+                    <select id="gridSelect">
+                        <option value="4">1/4</option><option value="8">1/8</option>
+                        <option value="16" selected>1/16</option><option value="32">1/32</option>
+                        <option value="64">1/64</option><option value="6">1/6</option>
+                        <option value="12">1/12</option><option value="24">1/24</option>
+                        <option value="48">1/48</option><option value="96">1/96</option>
+                    </select>
+                </label>
+            </div>
+            <div class="group">
+                <label>dB Min: <input type="number" id="minDbInput" value="180" style="width:50px;"></label>
+                <label>Max: <input type="number" id="maxDbInput" value="245" style="width:50px;"></label>
+            </div>
+        </div>
+        <div class="canvas-container" id="viewContainer">
+            <canvas id="spectrogramCanvas"></canvas>
+            <div class="center-line"></div>
+        </div>
+        <div class="bottom-player">
+            <div class="player-row">
+                <button id="playBtn" disabled>Play</button>
+                <input type="range" id="offsetRange" min="0" max="100" value="0" step="0.01">
+            </div>
+            <div class="time-info"><span id="currTime">0:00</span> / <span id="totalTime">0:00</span></div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

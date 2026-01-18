@@ -1,0 +1,20 @@
+body { background-color: #0d0d0d; color: #ccc; font-family: sans-serif; margin: 0; padding: 0; overflow: hidden; }
+.container { display: flex; flex-direction: column; height: 100vh; }
+.top-bar { padding: 8px 15px; display: flex; align-items: center; gap: 15px; background: #1a1a1a; border-bottom: 1px solid #333; }
+h1 { font-size: 16px; margin: 0; color: #eee; letter-spacing: 1px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; background: #111; padding: 6px 15px; border-bottom: 1px solid #222; }
+.group { display: flex; gap: 8px; align-items: center; border-right: 1px solid #2a2a2a; padding-right: 12px; }
+.group:last-child { border-right: none; }
+.canvas-container { position: relative; flex-grow: 1; background: #050505; overflow: hidden; outline: none; }
+canvas { display: block; width: 100%; height: 100%; }
+.center-line { position: absolute; left: 50%; top: 0; width: 1px; height: 100%; background: #00ff00; opacity: 0.5; pointer-events: none; z-index: 5; }
+
+.bottom-player { background: #1a1a1a; padding: 10px 25px; border-top: 1px solid #333; }
+.player-row { display: flex; align-items: center; gap: 15px; }
+#playBtn { min-width: 60px; height: 30px; cursor: pointer; border-color: #00ff00; color: #00ff00; }
+#offsetRange { flex-grow: 1; cursor: pointer; height: 4px; accent-color: #00ff00; }
+.time-info { margin-top: 5px; font-size: 11px; color: #666; text-align: right; }
+
+button, input, select { background: #2a2a2a; color: #eee; border: 1px solid #3d3d3d; padding: 2px 5px; font-size: 11px; }
+button:active { background: #333; }
+label { font-size: 10px; color: #555; text-transform: uppercase; }
