@@ -128,11 +128,9 @@ const seekTo = (percent) => {
     if (wasPlaying) {
         pause(); // stop current loop
     }
-
     pausedAt = (percent / 100) * audioBuf.duration;
     currTimeTxt.innerText = fmtT(pausedAt);
     offsetRange.value = percent;
-
     if (wasPlaying) {
         play(); // start new loop
     } else {
@@ -141,6 +139,7 @@ const seekTo = (percent) => {
 };
 
 [scaleRange, yScaleRange, yOffsetRange, minDbInput, maxDbInput, bpmInput, gridOffsetInput, gridSelect, highlightNoteSelect].forEach((r) => r.addEventListener("input", draw));
+[scaleRange, yScaleRange, yOffsetRange, offsetRange].forEach((r) => r.addEventListener("change", () => r.blur()));
 offsetRange.addEventListener("input", () => seekTo(offsetRange.value));
 
 window.addEventListener("keydown", (e) => {
