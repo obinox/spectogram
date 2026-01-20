@@ -26,7 +26,7 @@ let isPlaying = false;
 let animationId; // anmation loop ID
 
 const fftSize = 8192;
-const hopSize = 1024;
+const hopSize = 256;
 const minFreq = 20;
 
 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -57,20 +57,28 @@ fileInput.addEventListener("change", async (e) => {
 
 async function analyze() {
     fftData = [];
-    const offCtx = new OfflineAudioContext(1, audioBuf.length, audioBuf.sampleRate);
+    const sr = audioBuf.sampleRate;
+    const offCtx = new OfflineAudioContext(1, audioBuf.length, sr);
+
     const src = offCtx.createBufferSource();
-    const ans = offCtx.createAnalyser();
-    const proc = offCtx.createScriptProcessor(hopSize, 1, 1);
     src.buffer = audioBuf;
+
+    const ans = offCtx.createAnalyser();
     ans.fftSize = fftSize;
+
     src.connect(ans);
-    ans.connect(proc);
-    proc.connect(offCtx.destination);
-    proc.onaudioprocess = () => {
-        const data = new Uint8Array(ans.frequencyBinCount);
-        ans.getByteFrequencyData(data);
-        fftData.push(new Uint8Array(data));
-    };
+    ans.connect(offCtx.destination);
+
+    for (let i = 0; i < audioBuf.length; i += hopSize) {
+        const time = i / sr;
+        offCtx.suspend(time).then(() => {
+            const data = new Uint8Array(ans.frequencyBinCount);
+            ans.getByteFrequencyData(data);
+            fftData.push(data);
+            offCtx.resume();
+        });
+    }
+
     src.start(0);
     await offCtx.startRendering();
 }
