@@ -10,11 +10,16 @@ const bpmInput = document.getElementById("bpmInput");
 const gridOffsetInput = document.getElementById("gridOffsetInput");
 const gridSelect = document.getElementById("gridSelect");
 const highlightNoteSelect = document.getElementById("highlightNoteSelect");
-const canvas = document.getElementById("spectrogramCanvas");
-const ctx = canvas.getContext("2d");
 const currTimeTxt = document.getElementById("currTime");
 const totalTimeTxt = document.getElementById("totalTime");
 const viewContainer = document.getElementById("viewContainer");
+
+const lCnv = document.getElementById("laneCanvas");
+const lCtx = lCnv.getContext("2d");
+const dCnv = document.getElementById("dataCanvas");
+const dCtx = dCnv.getContext("2d");
+const gCnv = document.getElementById("gridCanvas");
+const gCtx = gCnv.getContext("2d");
 
 let audioCtx;
 let audioBuf;
@@ -23,20 +28,33 @@ let fftData = [];
 let startTime = 0;
 let pausedAt = 0;
 let isPlaying = false;
-let animationId; // anmation loop ID
+let animationId;
+let intensityData = [];
+let colorCache = new Array(256);
 
 const fftSize = 8192;
 const hopSize = 256;
 const minFreq = 20;
-
 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const allNotes = [];
+
 for (let i = 0; i <= 9; i++) {
     noteNames.forEach((name, idx) => {
         const freq = 440 * Math.pow(2, (idx + (i + 1) * 12 - 69) / 12);
-        if (freq >= minFreq) allNotes.push({ name: name + i, freq, type: name, semitoneIdx: idx });
+        if (freq >= minFreq) {
+            allNotes.push({
+                name: name + i,
+                freq: freq,
+                type: name,
+                semi: 12 * Math.log2(freq / minFreq),
+            });
+        }
     });
 }
+
+let lastLaneState = "";
+let lastGridState = "";
+
 const fmtT = (s) => {
     const m = Math.floor(s / 60);
     const ss = Math.floor(s % 60);
@@ -59,13 +77,10 @@ async function analyze() {
     fftData = [];
     const sr = audioBuf.sampleRate;
     const offCtx = new OfflineAudioContext(1, audioBuf.length, sr);
-
     const src = offCtx.createBufferSource();
     src.buffer = audioBuf;
-
     const ans = offCtx.createAnalyser();
     ans.fftSize = fftSize;
-
     src.connect(ans);
     ans.connect(offCtx.destination);
 
@@ -78,9 +93,165 @@ async function analyze() {
             offCtx.resume();
         });
     }
-
     src.start(0);
     await offCtx.startRendering();
+    computeIntensityData();
+}
+
+function computeIntensityData() {
+    intensityData = [];
+    const binFreq = audioBuf.sampleRate / fftSize;
+    const binRanges = allNotes.map((note) =>
+        [0, 1, 2].map((k) => {
+            const f = note.freq * Math.pow(2, (k - 1) / 3 / 12);
+            return {
+                sB: Math.floor((f * Math.pow(2, -0.5 / 36)) / binFreq),
+                eB: Math.ceil((f * Math.pow(2, 0.5 / 36)) / binFreq),
+            };
+        }),
+    );
+
+    for (let i = 0; i < fftData.length; i++) {
+        const frame = fftData[i];
+        const intensities = new Uint8Array(allNotes.length * 3);
+        for (let n = 0; n < allNotes.length; n++) {
+            for (let k = 0; k < 3; k++) {
+                const r = binRanges[n][k];
+                let maxV = 0;
+                for (let b = r.sB; b <= r.eB; b++) {
+                    if (frame[b] > maxV) maxV = frame[b];
+                }
+                intensities[n * 3 + k] = maxV;
+            }
+        }
+        intensityData.push(intensities);
+    }
+}
+
+function updateColorCache() {
+    const mDb = parseInt(minDbInput.value) || 0;
+    const xDb = parseInt(maxDbInput.value) || 255;
+    for (let i = 0; i < 256; i++) {
+        if (i <= mDb) {
+            colorCache[i] = null;
+        } else {
+            const r = Math.min(1, (i - mDb) / Math.max(1, xDb - mDb));
+            colorCache[i] = `hsl(${240 - r * 240}, 80%, 50%, ${r})`;
+        }
+    }
+}
+
+function drawLanes(w, h, visSemi, sSemi, highlightTarget) {
+    const state = `${visSemi}-${sSemi}-${highlightTarget}-${w}-${h}`;
+    if (state === lastLaneState) return;
+    lastLaneState = state;
+    lCnv.width = w;
+    lCnv.height = h;
+    lCtx.clearRect(0, 0, w, h);
+    const rowH = h / visSemi;
+    allNotes.forEach((note) => {
+        const cY = h - ((note.semi - sSemi) / visSemi) * h;
+        if (cY + rowH > 0 && cY - rowH < h) {
+            lCtx.fillStyle = note.type === highlightTarget ? "rgba(255, 255, 255, 0.12)" : note.type.includes("#") ? "rgba(255, 255, 255, 0.02)" : "rgba(255, 255, 255, 0.05)";
+            lCtx.fillRect(0, cY - rowH / 2, w, rowH);
+            lCtx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+            lCtx.lineWidth = 1;
+            lCtx.beginPath();
+            lCtx.moveTo(0, cY + rowH / 2);
+            lCtx.lineTo(w, cY + rowH / 2);
+            lCtx.stroke();
+            if (note.type === highlightTarget || (visSemi <= 73 && note.type === "G") || visSemi <= 49) {
+                lCtx.fillStyle = note.type === highlightTarget ? "#00ff00" : "#777";
+                lCtx.font = note.type === highlightTarget ? "bold 10px monospace" : "9px monospace";
+                lCtx.fillText(note.name, 5, cY + 3);
+            }
+        }
+    });
+}
+
+function drawData(w, h, visSemi, sSemi, zX) {
+    dCnv.width = w;
+    dCnv.height = h;
+    updateColorCache();
+    const centerIdx = Math.floor(intensityData.length * (pausedAt / audioBuf.duration));
+    const visHalfX = Math.floor(intensityData.length / zX / 2);
+    const colW = w / (visHalfX * 2);
+    const rowH = h / visSemi;
+    const subRowH = rowH / 3;
+
+    const visibleIndices = [];
+    for (let n = 0; n < allNotes.length; n++) {
+        const cY = h - ((allNotes[n].semi - sSemi) / visSemi) * h;
+        if (cY + rowH > 0 && cY - rowH < h) {
+            visibleIndices.push({ n, cY });
+        }
+    }
+
+    visibleIndices.forEach(({ n, cY }) => {
+        for (let k = 0; k < 3; k++) {
+            const subY = cY + (1 - k) * subRowH - subRowH / 2;
+            for (let i = -visHalfX; i < visHalfX; i++) {
+                const dIdx = centerIdx + i;
+                if (dIdx < 0 || dIdx >= intensityData.length) continue;
+                const val = intensityData[dIdx][n * 3 + k];
+                const color = colorCache[val];
+                if (color) {
+                    dCtx.fillStyle = color;
+                    dCtx.fillRect((i + visHalfX) * colW, subY, colW + 0.8, subRowH + 0.3);
+                }
+            }
+        }
+    });
+}
+
+function drawGrid(w, h, startT, endT, timePerPx, barDur, div, gridDur, gOff) {
+    const state = `${w}-${h}-${startT}-${endT}-${barDur}-${div}-${gOff}`;
+    if (state === lastGridState) return;
+    lastGridState = state;
+    gCnv.width = w;
+    gCnv.height = h;
+    let gIdx = Math.ceil((startT - gOff) / gridDur);
+    let t = gOff + gIdx * gridDur;
+    while (t <= endT) {
+        if (t >= 0 && t <= audioBuf.duration) {
+            const x = (t - startT) / timePerPx;
+            const isB = ((gIdx % div) + div) % div === 0;
+            gCtx.strokeStyle = isB ? "rgba(255, 255, 0, 0.6)" : "rgba(255, 255, 255, 0.1)";
+            gCtx.lineWidth = isB ? 2 : 1;
+            gCtx.beginPath();
+            gCtx.moveTo(x, 0);
+            gCtx.lineTo(x, h);
+            gCtx.stroke();
+            if (isB) {
+                gCtx.fillStyle = "rgba(255, 255, 0, 0.4)";
+                gCtx.fillText(Math.floor(gIdx / div) + 1, x + 4, h - 10);
+            }
+        }
+        gIdx++;
+        t = gOff + gIdx * gridDur;
+    }
+}
+
+function draw() {
+    if (!intensityData.length) return;
+    const w = viewContainer.clientWidth;
+    const h = viewContainer.clientHeight;
+    const zX = parseFloat(scaleRange.value);
+    const visSemi = parseFloat(yScaleRange.value);
+    const sSemi = parseFloat(yOffsetRange.value);
+
+    drawLanes(w, h, visSemi, sSemi, highlightNoteSelect.value);
+    drawData(w, h, visSemi, sSemi, zX);
+
+    const bpm = parseFloat(bpmInput.value) || 120;
+    const barDur = 240 / bpm;
+    const div = parseInt(gridSelect.value);
+    const gridDur = barDur / div;
+    const gOff = (parseInt(gridOffsetInput.value) / 96) * barDur;
+    const visHalfX = Math.floor(intensityData.length / zX / 2);
+    const timePerPx = (visHalfX * 2 * (hopSize / audioBuf.sampleRate)) / w;
+
+    drawGrid(w, h, pausedAt - (w / 2) * timePerPx, pausedAt + (w / 2) * timePerPx, timePerPx, barDur, div, gridDur, gOff);
 }
 
 function play() {
@@ -104,7 +275,7 @@ function pause() {
     }
     pausedAt = audioCtx.currentTime - startTime;
     playBtn.innerText = "Play";
-    cancelAnimationFrame(animationId); // cancel recent animation loop
+    cancelAnimationFrame(animationId);
 }
 
 const togglePlay = () => (isPlaying ? pause() : play());
@@ -127,23 +298,18 @@ function animate() {
     offsetRange.value = (curr / audioBuf.duration) * 100;
     currTimeTxt.innerText = fmtT(curr);
     draw();
-    animationId = requestAnimationFrame(animate); // save animation ID
+    animationId = requestAnimationFrame(animate);
 }
 
 const seekTo = (percent) => {
     if (!audioBuf) return;
     const wasPlaying = isPlaying;
-    if (wasPlaying) {
-        pause(); // stop current loop
-    }
+    if (wasPlaying) pause();
     pausedAt = (percent / 100) * audioBuf.duration;
     currTimeTxt.innerText = fmtT(pausedAt);
     offsetRange.value = percent;
-    if (wasPlaying) {
-        play(); // start new loop
-    } else {
-        draw();
-    }
+    if (wasPlaying) play();
+    else draw();
 };
 
 [scaleRange, yScaleRange, yOffsetRange, minDbInput, maxDbInput, bpmInput, gridOffsetInput, gridSelect, highlightNoteSelect].forEach((r) => r.addEventListener("input", draw));
@@ -189,90 +355,3 @@ viewContainer.addEventListener(
     },
     { passive: false },
 );
-
-function draw() {
-    if (!fftData.length) return;
-    const w = (canvas.width = canvas.clientWidth);
-    const h = (canvas.height = canvas.clientHeight);
-    const zX = parseFloat(scaleRange.value);
-    const visSemi = parseFloat(yScaleRange.value);
-    const sSemi = parseFloat(yOffsetRange.value);
-    const mDb = parseInt(minDbInput.value) || 0;
-    const xDb = parseInt(maxDbInput.value) || 255;
-    const highlightTarget = highlightNoteSelect.value;
-    const centerIdx = Math.floor(fftData.length * (pausedAt / audioBuf.duration));
-    const visHalfX = Math.floor(fftData.length / zX / 2);
-    const binFreq = audioBuf.sampleRate / fftSize;
-    const rowH = h / visSemi;
-    const subRowH = rowH / 3;
-    const colW = w / (visHalfX * 2);
-
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, w, h);
-
-    allNotes.forEach((note) => {
-        const nSemi = 12 * Math.log2(note.freq / minFreq);
-        const cY = h - ((nSemi - sSemi) / visSemi) * h;
-        if (cY + rowH > 0 && cY - rowH < h) {
-            ctx.fillStyle = note.type === highlightTarget ? "rgba(255, 255, 255, 0.12)" : note.type.includes("#") ? "rgba(255, 255, 255, 0.02)" : "rgba(255, 255, 255, 0.05)";
-            ctx.fillRect(0, cY - rowH / 2, w, rowH);
-            for (let k = 0; k < 3; k++) {
-                const subFreq = note.freq * Math.pow(2, (k - 1) / 3 / 12);
-                const sB = Math.floor((subFreq * Math.pow(2, -0.5 / 36)) / binFreq);
-                const eB = Math.ceil((subFreq * Math.pow(2, 0.5 / 36)) / binFreq);
-                const subY = cY + (1 - k) * subRowH - subRowH / 2;
-                for (let i = -visHalfX; i < visHalfX; i++) {
-                    const dIdx = centerIdx + i;
-                    if (dIdx < 0 || dIdx >= fftData.length) continue;
-                    let maxV = 0;
-                    for (let b = sB; b <= eB; b++) if (fftData[dIdx][b] > maxV) maxV = fftData[dIdx][b];
-                    if (maxV > mDb) {
-                        const r = Math.min(1, (maxV - mDb) / (xDb - mDb));
-                        ctx.fillStyle = `hsl(${240 - r * 240}, 80%, 50%, ${r})`;
-                        ctx.fillRect((i + visHalfX) * colW, subY, colW + 0.8, subRowH + 0.3);
-                    }
-                }
-            }
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(0, cY + rowH / 2);
-            ctx.lineTo(w, cY + rowH / 2);
-            ctx.stroke();
-            if (note.type === highlightTarget || (visSemi <= 73 && note.type === "G") || visSemi <= 49) {
-                ctx.fillStyle = note.type === highlightTarget ? "#00ff00" : "#777";
-                ctx.font = note.type === highlightTarget ? "bold 10px monospace" : "9px monospace";
-                ctx.fillText(note.name, 5, cY + 3);
-            }
-        }
-    });
-
-    const bpm = parseFloat(bpmInput.value) || 120;
-    const barDur = 240 / bpm;
-    const div = parseInt(gridSelect.value);
-    const gridDur = barDur / div;
-    const gOff = (parseInt(gridOffsetInput.value) / 96) * barDur;
-    const timePerPx = (visHalfX * 2 * (hopSize / audioBuf.sampleRate)) / w;
-    const startT = pausedAt - (w / 2) * timePerPx;
-    const endT = pausedAt + (w / 2) * timePerPx;
-    let gIdx = Math.ceil((startT - gOff) / gridDur);
-    let t = gOff + gIdx * gridDur;
-    while (t <= endT) {
-        if (t >= 0 && t <= audioBuf.duration) {
-            const x = (t - startT) / timePerPx;
-            const isB = ((gIdx % div) + div) % div === 0;
-            ctx.strokeStyle = isB ? "rgba(255, 255, 0, 0.6)" : "rgba(255, 255, 255, 0.1)";
-            ctx.lineWidth = isB ? 2 : 1;
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, h);
-            ctx.stroke();
-            if (isB) {
-                ctx.fillStyle = "rgba(255, 255, 0, 0.4)";
-                ctx.fillText(Math.floor(gIdx / div) + 1, x + 4, h - 10);
-            }
-        }
-        gIdx++;
-        t = gOff + gIdx * gridDur;
-    }
-}

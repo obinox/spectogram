@@ -2,13 +2,13 @@
 <html lang="ko">
     <head>
         <meta charset="UTF-8" />
-        <title>Musical Spectrogram Pro</title>
+        <title>Spectrogram</title>
         <link rel="stylesheet" href="styles.css" />
     </head>
     <body>
         <div class="container">
             <div class="top-bar">
-                <h1>Spectrogram Pro</h1>
+                <h1>Spectrogram</h1>
                 <input type="file" id="audioFile" accept=".wav" />
             </div>
             <div class="controls">
@@ -61,7 +61,9 @@
                 </div>
             </div>
             <div class="canvas-container" id="viewContainer">
-                <canvas id="spectrogramCanvas"></canvas>
+                <canvas id="laneCanvas"></canvas>
+                <canvas id="dataCanvas"></canvas>
+                <canvas id="gridCanvas"></canvas>
                 <div class="center-line"></div>
             </div>
             <div class="bottom-player">
