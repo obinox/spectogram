@@ -10,11 +10,10 @@ const bpmInput = document.getElementById("bpmInput");
 const gridOffsetInput = document.getElementById("gridOffsetInput");
 const gridSelect = document.getElementById("gridSelect");
 const highlightNoteSelect = document.getElementById("highlightNoteSelect");
+const paletteSelect = document.getElementById("paletteSelect");
 const currTimeTxt = document.getElementById("currTime");
 const totalTimeTxt = document.getElementById("totalTime");
 const viewContainer = document.getElementById("viewContainer");
-const diffTimeToggle = document.getElementById("diffTimeToggle");
-const diffFreqToggle = document.getElementById("diffFreqToggle");
 
 const lCnv = document.getElementById("laneCanvas");
 const lCtx = lCnv.getContext("2d");
@@ -35,6 +34,7 @@ let intensityData = [];
 let diffTimeData = [];
 let diffFreqData = [];
 let colorCache = new Array(256);
+let colorCacheDiff = new Array(256);
 
 const fftSize = 8192;
 const hopSize = 256;
@@ -64,6 +64,33 @@ const fmtT = (s) => {
     const ss = Math.floor(s % 60);
     return `${m}:${ss < 10 ? "0" : ""}${ss}`;
 };
+
+window.addEventListener("load", () => {
+    resizeCanvases();
+    updateColorCache();
+    draw();
+});
+
+window.addEventListener("resize", () => {
+    resizeCanvases();
+    draw();
+});
+
+function resizeCanvases() {
+    const w = viewContainer.clientWidth;
+    const h = viewContainer.clientHeight;
+    lCnv.width = w;
+    lCnv.height = h;
+    dCnv.width = w;
+    dCnv.height = h;
+    gCnv.width = w;
+    gCnv.height = h;
+    // dfCnv.width = w;
+    // dfCnv.height = h;
+    // dtCnv.width = w;
+    // dtCnv.height = h;
+    lastLaneState = "";
+}
 
 fileInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
@@ -104,6 +131,8 @@ async function analyze() {
 
 function computeIntensityData() {
     intensityData = [];
+    diffTimeData = [];
+    diffFreqData = [];
     const binFreq = audioBuf.sampleRate / fftSize;
     const binRanges = allNotes.map((note) =>
         [0, 1, 2].map((k) => {
@@ -115,7 +144,6 @@ function computeIntensityData() {
         }),
     );
 
-    // fft
     for (let i = 0; i < fftData.length; i++) {
         const frame = fftData[i];
         const intensities = new Uint8Array(allNotes.length * 3);
@@ -132,22 +160,15 @@ function computeIntensityData() {
         intensityData.push(intensities);
     }
 
-    // diffrentiation
     for (let i = 0; i < intensityData.length; i++) {
-        const currFrame = intensityData[i];
-        const prevFrame = intensityData[i - 1] || currFrame;
-        const dT = new Uint8Array(currFrame.length);
-        const dF = new Uint8Array(currFrame.length);
-
-        for (let j = 0; j < currFrame.length; j++) {
-            // df/dt
-            const diffT = Math.abs(currFrame[j] - prevFrame[j]);
-            dT[j] = diffT;
-
-            // df/dw
-            const nextVal = currFrame[j + 1] || currFrame[j];
-            const diffF = Math.abs(currFrame[j] - nextVal);
-            dF[j] = diffF;
+        const curr = intensityData[i];
+        const prev = intensityData[i - 1] || curr;
+        const dT = new Int16Array(curr.length);
+        const dF = new Int16Array(curr.length);
+        for (let j = 0; j < curr.length; j++) {
+            dT[j] = curr[j] - prev[j];
+            const nextVal = curr[j + 1] || curr[j];
+            dF[j] = curr[j] - nextVal;
         }
         diffTimeData.push(dT);
         diffFreqData.push(dF);
@@ -157,13 +178,50 @@ function computeIntensityData() {
 function updateColorCache() {
     const mDb = parseInt(minDbInput.value) || 0;
     const xDb = parseInt(maxDbInput.value) || 255;
+    const range = Math.max(1, xDb - mDb);
+    const palette = paletteSelect.value;
+
     for (let i = 0; i < 256; i++) {
         if (i <= mDb) {
             colorCache[i] = null;
         } else {
-            const r = Math.min(1, (i - mDb) / Math.max(1, xDb - mDb));
-            colorCache[i] = `hsl(${240 - r * 240}, 80%, 50%, ${r})`;
+            const r = Math.min(1, (i - mDb) / range);
+            switch (palette) {
+                case "chlorosis":
+                    colorCache[i] = `hsla(${240 - r * 240}, 80%, 50%, ${r})`;
+                    break;
+                case "rainbow":
+                    colorCache[i] = `hsla(${360 - r * 360}, 80%, 50%, ${r})`;
+                    break;
+                case "viridis":
+                    colorCache[i] = `rgba(${viridis_color[Math.floor(r * (viridis_color.length - 1))].join(", ")}, ${r})`;
+                    break;
+                case "plasma":
+                    colorCache[i] = `rgba(${plasma_color[Math.floor(r * (plasma_color.length - 1))].join(", ")}, ${r})`;
+                    break;
+                case "inferno":
+                    colorCache[i] = `rgba(${inferno_color[Math.floor(r * (inferno_color.length - 1))].join(", ")}, ${r})`;
+                    break;
+                case "magma":
+                    colorCache[i] = `rgba(${magma_color[Math.floor(r * (magma_color.length - 1))].join(", ")}, ${r})`;
+                    break;
+                case "cividis":
+                    colorCache[i] = `rgba(${cividis_color[Math.floor(r * (cividis_color.length - 1))].join(", ")}, ${r})`;
+                    break;
+                case "gray":
+                default:
+                    colorCache[i] = `hsla(${0}, ${0}%, ${r * 50}%, ${r})`;
+                    break;
+            }
         }
+    }
+
+    for (let i = 0; i < 256; i++) {
+        if (i < 0 || i > 255) {
+            colorCacheDiff[i] = null;
+            continue;
+        }
+        colorCacheDiff[i] = `hsla(${0}, ${0}%, ${(i / 255) * 50}%, ${i / 255})`;
     }
 }
 
@@ -171,8 +229,6 @@ function drawLanes(w, h, visSemi, sSemi, highlightTarget) {
     const state = `${visSemi}-${sSemi}-${highlightTarget}-${w}-${h}`;
     if (state === lastLaneState) return;
     lastLaneState = state;
-    lCnv.width = w;
-    lCnv.height = h;
     lCtx.clearRect(0, 0, w, h);
     const rowH = h / visSemi;
     allNotes.forEach((note) => {
@@ -196,40 +252,32 @@ function drawLanes(w, h, visSemi, sSemi, highlightTarget) {
 }
 
 function drawData(w, h, visSemi, sSemi, zX) {
-    dCnv.width = w;
-    dCnv.height = h;
-    updateColorCache();
+    dCtx.clearRect(0, 0, w, h);
+    if (!intensityData.length) return;
+    // updateColorCache();
     const centerIdx = Math.floor(intensityData.length * (pausedAt / audioBuf.duration));
     const visHalfX = Math.floor(intensityData.length / zX / 2);
     const colW = w / (visHalfX * 2);
     const rowH = h / visSemi;
     const subRowH = rowH / 3;
 
-    const useDiffT = diffTimeToggle.checked;
-    const useDiffF = diffFreqToggle.checked;
-
-    const visibleIndices = [];
+    const visible = [];
     for (let n = 0; n < allNotes.length; n++) {
         const cY = h - ((allNotes[n].semi - sSemi) / visSemi) * h;
-        if (cY + rowH > 0 && cY - rowH < h) {
-            visibleIndices.push({ n, cY });
-        }
+        if (cY + rowH > 0 && cY - rowH < h) visible.push({ n, cY });
     }
 
-    visibleIndices.forEach(({ n, cY }) => {
+    visible.forEach(({ n, cY }) => {
         for (let k = 0; k < 3; k++) {
             const subY = cY + (1 - k) * subRowH - subRowH / 2;
-            const dataOffset = n * 3 + k;
-
+            const offset = n * 3 + k;
             for (let i = -visHalfX; i < visHalfX; i++) {
                 const dIdx = centerIdx + i;
                 if (dIdx < 0 || dIdx >= intensityData.length) continue;
-                let val = intensityData[dIdx][n * 3 + k];
 
-                if (useDiffT) val += diffTimeData[dIdx][dataOffset] * 1.5;
-                if (useDiffF) val += diffFreqData[dIdx][dataOffset] * 1.5;
+                let val = intensityData[dIdx][offset];
+                let color = colorCache[val];
 
-                const color = colorCache[val];
                 if (color) {
                     dCtx.fillStyle = color;
                     dCtx.fillRect((i + visHalfX) * colW, subY, colW + 0.8, subRowH + 0.3);
@@ -243,8 +291,8 @@ function drawGrid(w, h, startT, endT, timePerPx, barDur, div, gridDur, gOff) {
     const state = `${w}-${h}-${startT}-${endT}-${barDur}-${div}-${gOff}`;
     if (state === lastGridState) return;
     lastGridState = state;
-    gCnv.width = w;
-    gCnv.height = h;
+    gCtx.clearRect(0, 0, w, h);
+    if (!audioBuf) return;
     let gIdx = Math.ceil((startT - gOff) / gridDur);
     let t = gOff + gIdx * gridDur;
     while (t <= endT) {
@@ -268,7 +316,6 @@ function drawGrid(w, h, startT, endT, timePerPx, barDur, div, gridDur, gOff) {
 }
 
 function draw() {
-    if (!intensityData.length) return;
     const w = viewContainer.clientWidth;
     const h = viewContainer.clientHeight;
     const zX = parseFloat(scaleRange.value);
@@ -278,15 +325,16 @@ function draw() {
     drawLanes(w, h, visSemi, sSemi, highlightNoteSelect.value);
     drawData(w, h, visSemi, sSemi, zX);
 
-    const bpm = parseFloat(bpmInput.value) || 120;
-    const barDur = 240 / bpm;
-    const div = parseInt(gridSelect.value);
-    const gridDur = barDur / div;
-    const gOff = (parseInt(gridOffsetInput.value) / 96) * barDur;
-    const visHalfX = Math.floor(intensityData.length / zX / 2);
-    const timePerPx = (visHalfX * 2 * (hopSize / audioBuf.sampleRate)) / w;
-
-    drawGrid(w, h, pausedAt - (w / 2) * timePerPx, pausedAt + (w / 2) * timePerPx, timePerPx, barDur, div, gridDur, gOff);
+    if (audioBuf) {
+        const bpm = parseFloat(bpmInput.value) || 120;
+        const barDur = 240 / bpm;
+        const div = parseInt(gridSelect.value);
+        const gridDur = barDur / div;
+        const gOff = (parseInt(gridOffsetInput.value) / 96) * barDur;
+        const visHalfX = Math.floor(intensityData.length / zX / 2);
+        const timePerPx = (visHalfX * 2 * (hopSize / audioBuf.sampleRate)) / w;
+        drawGrid(w, h, pausedAt - (w / 2) * timePerPx, pausedAt + (w / 2) * timePerPx, timePerPx, barDur, div, gridDur, gOff);
+    }
 }
 
 function play() {
@@ -347,8 +395,14 @@ const seekTo = (percent) => {
     else draw();
 };
 
-[scaleRange, yScaleRange, yOffsetRange, minDbInput, maxDbInput, bpmInput, gridOffsetInput, gridSelect, highlightNoteSelect, diffTimeToggle, diffFreqToggle].forEach((r) => r.addEventListener("input", draw));
-[scaleRange, yScaleRange, yOffsetRange, offsetRange, diffTimeToggle, diffFreqToggle].forEach((r) => r.addEventListener("change", () => r.blur()));
+[scaleRange, yScaleRange, yOffsetRange, minDbInput, maxDbInput, bpmInput, gridOffsetInput, gridSelect, highlightNoteSelect, paletteSelect].forEach((r) => r.addEventListener("input", draw));
+[paletteSelect].forEach((r) =>
+    r.addEventListener("change", () => {
+        updateColorCache();
+        draw();
+    }),
+);
+[scaleRange, yScaleRange, yOffsetRange, offsetRange, fileInput, paletteSelect].forEach((r) => r.addEventListener("change", () => r.blur()));
 offsetRange.addEventListener("input", () => seekTo(offsetRange.value));
 
 let SpacePressed = false;
@@ -367,26 +421,20 @@ window.addEventListener("keydown", (e) => {
         if (ArrowLeftPressed) return;
         ArrowLeftPressed = true;
         e.preventDefault();
-        seekTo(Math.max(0, ((pausedAt - 5) / audioBuf.duration) * 100));
+        if (audioBuf) seekTo(Math.max(0, ((pausedAt - 5) / audioBuf.duration) * 100));
     }
     if (e.code === "ArrowRight") {
         if (ArrowRightPressed) return;
         ArrowRightPressed = true;
         e.preventDefault();
-        seekTo(Math.min(100, ((pausedAt + 5) / audioBuf.duration) * 100));
+        if (audioBuf) seekTo(Math.min(100, ((pausedAt + 5) / audioBuf.duration) * 100));
     }
 });
 
 window.addEventListener("keyup", (e) => {
-    if (e.code === "Space") {
-        SpacePressed = false;
-    }
-    if (e.code === "ArrowLeft") {
-        ArrowLeftPressed = false;
-    }
-    if (e.code === "ArrowRight") {
-        ArrowRightPressed = false;
-    }
+    if (e.code === "Space") SpacePressed = false;
+    if (e.code === "ArrowLeft") ArrowLeftPressed = false;
+    if (e.code === "ArrowRight") ArrowRightPressed = false;
 });
 
 viewContainer.addEventListener(
@@ -404,7 +452,7 @@ viewContainer.addEventListener(
             yOffsetRange.value = centerSemi - newZoom / 2;
         } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
             const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-            seekTo(Math.max(0, Math.min(100, parseFloat(offsetRange.value) + (delta > 0 ? 0.5 : -0.5))));
+            if (audioBuf) seekTo(Math.max(0, Math.min(100, parseFloat(offsetRange.value) + (delta > 0 ? 0.5 : -0.5))));
         } else {
             yOffsetRange.value = parseFloat(yOffsetRange.value) + (e.deltaY > 0 ? -1 : 1);
         }
