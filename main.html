@@ -56,13 +56,19 @@
                     </label>
                 </div>
                 <div class="group">
-                    <label>dB Min: <input type="number" id="minDbInput" value="180" style="width: 50px" /></label>
-                    <label>Max: <input type="number" id="maxDbInput" value="245" style="width: 50px" /></label>
+                    <label>dB Min: <input type="number" id="minDbInput" value="180" min="0" max="255" style="width: 50px" /></label>
+                    <label>Max: <input type="number" id="maxDbInput" value="245" min="0" max="255" style="width: 50px" /></label>
+                </div>
+                <div class="group">
+                    <label>Diff T: <input type="checkbox" id="diffTimeToggle" tabindex="-1" /></label>
+                    <label>Diff F: <input type="checkbox" id="diffFreqToggle" tabindex="-1" /></label>
                 </div>
             </div>
             <div class="canvas-container" id="viewContainer">
                 <canvas id="laneCanvas"></canvas>
                 <canvas id="dataCanvas"></canvas>
+                <canvas id="tDiffCanvas"></canvas>
+                <canvas id="fDiffCanvas"></canvas>
                 <canvas id="gridCanvas"></canvas>
                 <div class="center-line"></div>
             </div>

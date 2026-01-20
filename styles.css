@@ -89,7 +89,7 @@ canvas {
     border-color: #00ff00;
     color: #00ff00;
 }
-#offsetRange {
+input[type="range"] {
     flex-grow: 1;
     cursor: pointer;
     height: 4px;

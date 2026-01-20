@@ -13,6 +13,8 @@ const highlightNoteSelect = document.getElementById("highlightNoteSelect");
 const currTimeTxt = document.getElementById("currTime");
 const totalTimeTxt = document.getElementById("totalTime");
 const viewContainer = document.getElementById("viewContainer");
+const diffTimeToggle = document.getElementById("diffTimeToggle");
+const diffFreqToggle = document.getElementById("diffFreqToggle");
 
 const lCnv = document.getElementById("laneCanvas");
 const lCtx = lCnv.getContext("2d");
@@ -30,6 +32,8 @@ let pausedAt = 0;
 let isPlaying = false;
 let animationId;
 let intensityData = [];
+let diffTimeData = [];
+let diffFreqData = [];
 let colorCache = new Array(256);
 
 const fftSize = 8192;
@@ -111,6 +115,7 @@ function computeIntensityData() {
         }),
     );
 
+    // fft
     for (let i = 0; i < fftData.length; i++) {
         const frame = fftData[i];
         const intensities = new Uint8Array(allNotes.length * 3);
@@ -125,6 +130,27 @@ function computeIntensityData() {
             }
         }
         intensityData.push(intensities);
+    }
+
+    // diffrentiation
+    for (let i = 0; i < intensityData.length; i++) {
+        const currFrame = intensityData[i];
+        const prevFrame = intensityData[i - 1] || currFrame;
+        const dT = new Uint8Array(currFrame.length);
+        const dF = new Uint8Array(currFrame.length);
+
+        for (let j = 0; j < currFrame.length; j++) {
+            // df/dt
+            const diffT = Math.abs(currFrame[j] - prevFrame[j]);
+            dT[j] = diffT;
+
+            // df/dw
+            const nextVal = currFrame[j + 1] || currFrame[j];
+            const diffF = Math.abs(currFrame[j] - nextVal);
+            dF[j] = diffF;
+        }
+        diffTimeData.push(dT);
+        diffFreqData.push(dF);
     }
 }
 
@@ -179,6 +205,9 @@ function drawData(w, h, visSemi, sSemi, zX) {
     const rowH = h / visSemi;
     const subRowH = rowH / 3;
 
+    const useDiffT = diffTimeToggle.checked;
+    const useDiffF = diffFreqToggle.checked;
+
     const visibleIndices = [];
     for (let n = 0; n < allNotes.length; n++) {
         const cY = h - ((allNotes[n].semi - sSemi) / visSemi) * h;
@@ -190,10 +219,16 @@ function drawData(w, h, visSemi, sSemi, zX) {
     visibleIndices.forEach(({ n, cY }) => {
         for (let k = 0; k < 3; k++) {
             const subY = cY + (1 - k) * subRowH - subRowH / 2;
+            const dataOffset = n * 3 + k;
+
             for (let i = -visHalfX; i < visHalfX; i++) {
                 const dIdx = centerIdx + i;
                 if (dIdx < 0 || dIdx >= intensityData.length) continue;
-                const val = intensityData[dIdx][n * 3 + k];
+                let val = intensityData[dIdx][n * 3 + k];
+
+                if (useDiffT) val += diffTimeData[dIdx][dataOffset] * 1.5;
+                if (useDiffF) val += diffFreqData[dIdx][dataOffset] * 1.5;
+
                 const color = colorCache[val];
                 if (color) {
                     dCtx.fillStyle = color;
@@ -312,23 +347,45 @@ const seekTo = (percent) => {
     else draw();
 };
 
-[scaleRange, yScaleRange, yOffsetRange, minDbInput, maxDbInput, bpmInput, gridOffsetInput, gridSelect, highlightNoteSelect].forEach((r) => r.addEventListener("input", draw));
-[scaleRange, yScaleRange, yOffsetRange, offsetRange].forEach((r) => r.addEventListener("change", () => r.blur()));
+[scaleRange, yScaleRange, yOffsetRange, minDbInput, maxDbInput, bpmInput, gridOffsetInput, gridSelect, highlightNoteSelect, diffTimeToggle, diffFreqToggle].forEach((r) => r.addEventListener("input", draw));
+[scaleRange, yScaleRange, yOffsetRange, offsetRange, diffTimeToggle, diffFreqToggle].forEach((r) => r.addEventListener("change", () => r.blur()));
 offsetRange.addEventListener("input", () => seekTo(offsetRange.value));
+
+let SpacePressed = false;
+let ArrowLeftPressed = false;
+let ArrowRightPressed = false;
 
 window.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
     if (e.code === "Space") {
+        if (SpacePressed) return;
+        SpacePressed = true;
         e.preventDefault();
         togglePlay();
     }
     if (e.code === "ArrowLeft") {
+        if (ArrowLeftPressed) return;
+        ArrowLeftPressed = true;
         e.preventDefault();
         seekTo(Math.max(0, ((pausedAt - 5) / audioBuf.duration) * 100));
     }
     if (e.code === "ArrowRight") {
+        if (ArrowRightPressed) return;
+        ArrowRightPressed = true;
         e.preventDefault();
         seekTo(Math.min(100, ((pausedAt + 5) / audioBuf.duration) * 100));
+    }
+});
+
+window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") {
+        SpacePressed = false;
+    }
+    if (e.code === "ArrowLeft") {
+        ArrowLeftPressed = false;
+    }
+    if (e.code === "ArrowRight") {
+        ArrowRightPressed = false;
     }
 });
 
